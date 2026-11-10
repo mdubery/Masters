@@ -1,0 +1,33 @@
+
+
+import pandas as pd
+#from sklearn.tree import DecisionTreeRegressor
+from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import train_test_split
+
+
+melb_file_path = 'melb_data.csv'
+melb_data = pd.read_csv(melb_file_path)
+#print(melb_data.describe())
+
+filtered = melb_data.dropna(axis=0)  # removing entries with NaN
+
+
+
+Y = filtered.Price
+features = ['Rooms', 'Bathroom', 'Landsize', 'BuildingArea', 'YearBuilt', 'Lattitude', 'Longtitude']
+X = filtered[features]
+
+
+
+#split
+train_X, val_X, train_Y, val_Y = train_test_split(X, Y, random_state=0)
+
+from sklearn.ensemble import RandomForestRegressor
+
+forest_model = RandomForestRegressor(random_state=1)
+forest_model.fit(train_X, train_Y)
+predictions = forest_model.predict(val_X)
+mae = mean_absolute_error(val_Y, predictions)
+print("Mean Absolute Error: ", mae)
+
