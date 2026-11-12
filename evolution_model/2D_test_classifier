@@ -1,7 +1,9 @@
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.neural_network import MLPClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.metrics import accuracy_score, classification_report, mean_absolute_error, r2_score
+from sklearn.compose import TransformedTargetRegressor
+
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,6 +18,7 @@ Mass = data["Stellar Mass (M_sun)"]
 X = np.column_stack((Period, Mass))
 
 #Y = data['Final Fraction'].to_numpy()
+Y_frac = data["Final Envelope Fraction"].to_numpy()
 Y = (data["Final Envelope Fraction"] > 1e-3).astype(int)  
 
 # 2. Split into 80% training data and 20% test data
@@ -72,5 +75,91 @@ plt.xscale("log")
 plt.xlabel("Orbital Period (days)")
 plt.ylabel("Stellar Mass ($M_\\odot$)")
 plt.title("Photoevaporation Boundary (100-Run Prototype)")
+plt.tight_layout()
+plt.show()
+
+#for classified as retained envelope (1) and lost envelope (0)
+retained_indices = np.where(Y == 1)[0]
+lost_indices = np.where(Y == 0)[0]
+
+#new training data with only retained
+A = X[retained_indices]
+B = Y_frac[retained_indices]
+
+#train test split
+A_train, A_test, B_train, B_test = train_test_split(
+    A, B, test_size=0.2, random_state=42
+)
+
+#scale
+A_scaler = StandardScaler()
+A_train_scaled = A_scaler.fit_transform(A_train)
+A_test_scaled = A_scaler.transform(A_test)
+
+
+#initate and run
+mlpr = MLPRegressor(
+    hidden_layer_sizes=(100, 100, 50, 15), 
+    activation='relu', 
+    solver='adam', 
+    learning_rate_init=0.001, 
+    max_iter=3000, 
+    random_state=42,
+    tol = 1e-8,
+    alpha = 1e-6
+    )
+mlpr.fit(A_train_scaled, B_train)
+
+#validate
+predictions_r = mlpr.predict(A_test_scaled)
+# Replace the two print lines at the bottom with:
+print(f"R² Score: {r2_score(B_test, predictions_r):.4f}")
+print(f"Mean Absolute Error: {mean_absolute_error(B_test, predictions_r):.6f}")
+
+# --- Add at the bottom of your script to visualize Stage 2 (mlpr) ---
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+
+# Panel 1: Parity plot (Predicted vs. True on unseen test data)
+ax1.scatter(B_test, predictions_r, color="tab:blue", edgecolors="k", s=55)
+limit = max(B_test.max(), predictions_r.max()) * 1.05
+ax1.plot([0, limit], [0, limit], "k--", label="Ideal 1:1 Fit")
+ax1.set_xlim(0, limit)
+ax1.set_ylim(0, limit)
+ax1.set_xlabel("True Final Envelope Fraction (Simulation)")
+ax1.set_ylabel("Predicted Final Envelope Fraction (mlpr)")
+ax1.set_title(f"Stage 2 Test Parity (R² = {r2_score(B_test, predictions_r):.4f})")
+ax1.legend()
+
+# Panel 2: Full two-stage emulator map (mlp mask + mlpr values) vs. simulations
+raw_grid = np.column_stack((PP.ravel(), MM.ravel()))
+is_retained = mlp.predict(x_scaler.transform(raw_grid)) == 1
+
+pred_frac_grid = np.zeros(len(raw_grid))
+if np.any(is_retained):
+    pred_frac_grid[is_retained] = np.clip(
+        mlpr.predict(A_scaler.transform(raw_grid[is_retained])), 0.0, None
+    )
+pred_frac_grid = pred_frac_grid.reshape(PP.shape)
+
+cf = ax2.contourf(PP, MM, pred_frac_grid, levels=20, cmap="viridis")
+plt.colorbar(cf, ax=ax2, label="Predicted Final Envelope Fraction")
+ax2.scatter(
+    Period,
+    Mass,
+    c=Y_frac,
+    cmap="viridis",
+    vmin=0.0,
+    vmax=pred_frac_grid.max(),
+    edgecolors="white",
+    linewidth=0.8,
+    s=45,
+    label="Simulation Runs",
+)
+ax2.set_xscale("log")
+ax2.set_xlabel("Orbital Period (days)")
+ax2.set_ylabel("Stellar Mass ($M_\\odot$)")
+ax2.set_title("Two-Stage Emulator vs. Simulation Data")
+ax2.legend(loc="lower right")
+
 plt.tight_layout()
 plt.show()
