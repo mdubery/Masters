@@ -25,11 +25,13 @@ initial_KH_timescale = 100.0  # early cooling time of the envelope, Myr
 from scipy.stats import qmc
 
 
-#latin hypercube sampling to generate training data
-def LHC_sample_parameters(n_samples) -> np.ndarray:
+#Sobol sampling to generate training data
+def Sobol_sample_parameters(n_samples: int, start_idx: int = 0) -> np.ndarray:
     seed = 42 
     """Generate space-filling (period_days, stellar_mass_msun) pairs."""
-    sampler = qmc.LatinHypercube(d=6, seed=seed)
+    sampler = qmc.Sobol(d=6, scramble=True, seed=seed)
+    if start_idx > 0:
+        sampler.fast_forward(start_idx)
     unit_samples = sampler.random(n=n_samples)
 
     # Sample log10(P) uniformly between 0 (1 day) and 2 (100 days),
@@ -52,8 +54,8 @@ def LHC_sample_parameters(n_samples) -> np.ndarray:
 
     return np.column_stack((periods, stellar_masses, metalicity, M_core, rho, logX_int))
 
-N = 10000
-sample = LHC_sample_parameters(N)
+N = 8192
+sample = Sobol_sample_parameters(n_samples = N, start_idx = 0)
 
 def run(P, M_s, Z, M_c, rho, X_int):
     t_myr, envelope_fraction, radius_earth = mass_fraction_evolver.RK45_driver(
@@ -76,17 +78,23 @@ def run(P, M_s, Z, M_c, rho, X_int):
 
 
 output_file = Path(__file__).parent / "training_data_6D.csv"
-with output_file.open(mode="w", newline="") as f:
+file_exists = output_file.exists() and output_file.stat().st_size > 0
+
+with output_file.open(mode="a", newline="") as f:
     writer = csv.writer(f)
-    writer.writerow(["Period (days)", "Stellar Mass (M_sun)", "Metalicity","M_core", "rho", "Log x int",  "Final Envelope Fraction", "Final Radius (R_earth)"])
+    if not file_exists:
+        writer.writerow(["Period (days)", "Stellar Mass (M_sun)", "Metalicity","M_core", "rho", "Log x int",  "Final Envelope Fraction", "Final Radius (R_earth)"])
     
     
     for i ,(P, M_s, Z, M_c, rho, X_int) in enumerate(sample, start =1):
-        t_myr, envelope_fraction, radius_earth = run(P, M_s, Z, M_c, rho, X_int)
-        writer.writerow([P, M_s, Z, M_c, rho, X_int, envelope_fraction[-1], radius_earth[-1]])
-        f.flush()
-        if i % (N//100) == 0:
-            print(int(100*i/len(sample)), "%")
+        try:
+            t_myr, envelope_fraction, radius_earth = run(P, M_s, Z, M_c, rho, X_int)
+            writer.writerow([P, M_s, Z, M_c, rho, X_int, envelope_fraction[-1], radius_earth[-1]])
+            f.flush()
+        except Exception as e:
+            print(f"Sample {i} failed: {e}")
+        if i % max(1, N // 100) == 0 or i == N:
+            print(f"{round(100 * i / N)} %")
 
 end_time = time()
 
