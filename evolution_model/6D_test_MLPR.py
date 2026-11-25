@@ -1,12 +1,16 @@
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.neural_network import MLPClassifier, MLPRegressor
-from sklearn.metrics import accuracy_score, classification_report, mean_absolute_error, r2_score
-
-
+import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    mean_absolute_error,
+    r2_score,
+)
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.preprocessing import StandardScaler
 
 # 1. Load the dataset 
 data = pd.read_csv('/home/matthew/Documents/Masters/code/Masters/evolution_model/training_data_6D.csv')
@@ -21,7 +25,6 @@ X_int = data["Log x int"]
 
 X = np.column_stack((np.log10(Period), Mass, Metalicity, M_core, rho, np.log10(X_int)))
 
-
 Y_frac = data["Final Envelope Fraction"].to_numpy()
 Y = (data["Final Envelope Fraction"] > 1e-3).astype(int)  
 #Final Radius (R_earth)
@@ -35,6 +38,7 @@ X_train, X_test, y_train, y_test = train_test_split(
 x_scaler = StandardScaler()
 X_train_scaled = x_scaler.fit_transform(X_train)
 X_test_scaled = x_scaler.transform(X_test)
+
 # 4. Instantiate and train the Multi-Layer Perceptron
 mlp = MLPClassifier(
     hidden_layer_sizes=(64, 32), 
@@ -50,7 +54,6 @@ print(f"Overall Accuracy: {accuracy_score(y_test, predictions):.2%}\n")
 print(classification_report(y_test, predictions))
 
 acc = accuracy_score(y_test, predictions)
-
 
 # 6. Graph for classifier
 p_grid = np.geomspace(1.0, 100.0, 200)
@@ -79,27 +82,26 @@ plt.title("Photoevaporation Boundary (100-Run Prototype)")
 plt.tight_layout()
 plt.show()
 
-#1. Load
-#for classified as retained envelope (1) and lost envelope (0)
+# 1. Load
+# for classified as retained envelope (1) and lost envelope (0)
 retained_indices = np.where(Y == 1)[0]
 lost_indices = np.where(Y == 0)[0]
 
-#new training data with only retained
+# new training data with only retained
 A = X[retained_indices]
 B = Y_frac[retained_indices]
 
-#2. train test split
+# 2. train test split
 A_train, A_test, B_train, B_test = train_test_split(
     A, B, test_size=0.2, random_state=42
 )
 
-#3. scale
+# 3. scale
 A_scaler = StandardScaler()
 A_train_scaled = A_scaler.fit_transform(A_train)
 A_test_scaled = A_scaler.transform(A_test)
 
-
-#4. initate and run
+# 4. initiate and run
 mlpr = MLPRegressor(
     hidden_layer_sizes=(100, 100, 50, 15), 
     activation='relu', 
@@ -107,21 +109,30 @@ mlpr = MLPRegressor(
     learning_rate_init=0.001, 
     max_iter=3000, 
     random_state=42,
-    tol = 1e-8,
-    alpha = 1e-6
-    )
+    tol=1e-8,
+    alpha=1e-6
+)
 mlpr.fit(A_train_scaled, B_train)
 
-#5. validate
+# --- Save trained models and scalers to disk ---
+emulator_bundle = {
+    "clf_scaler": x_scaler,
+    "clf": mlp,
+    "reg_scaler": A_scaler,
+    "reg": mlpr,
+}
+joblib.dump(emulator_bundle, "evolution_model/two_stage_emulator.joblib")
+print("Saved emulator models and scalers to two_stage_emulator.joblib")
+
+# 5. validate
 predictions_r = mlpr.predict(A_test_scaled)
 print(f"R² Score: {r2_score(B_test, predictions_r):.4f}")
 print(f"Mean Absolute Error: {mean_absolute_error(B_test, predictions_r):.6f}")
 
-#6. MLPR plots
-
+# 6. MLPR plots
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
 
-#Predicted vs. True
+# Predicted vs. True
 preds_plot = np.clip(predictions_r, 1e-4, None)
 ax1.scatter(B_test, preds_plot, color="tab:blue", alpha=0.3, s=10)
 low, high = 1e-3, max(B_test.max(), preds_plot.max()) * 1.1
@@ -143,7 +154,6 @@ if np.any(is_retained):
     pred_frac_grid[is_retained] = np.clip(
         mlpr.predict(A_scaler.transform(grid_6d[is_retained])), 0.0, None
     )
-
 
 pred_frac_grid = pred_frac_grid.reshape(PP.shape)
 
